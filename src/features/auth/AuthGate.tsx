@@ -9,19 +9,29 @@ export function AuthGate({ onSession }: { onSession: (session: Session | null) =
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [busy, setBusy] = useState(false);
+  const [loadingSession, setLoadingSession] = useState(Boolean(supabase));
   const [message, setMessage] = useState('');
 
   useEffect(() => {
     if (!supabase) return;
-    supabase.auth.getSession().then(({ data }) => {
+    let active = true;
+    supabase.auth.getSession().then(({ data, error }) => {
+      if (!active) return;
+      if (error) setMessage(error.message);
       setSession(data.session);
       onSession(data.session);
+      setLoadingSession(false);
+    }).catch(error => {
+      if (!active) return;
+      setMessage(error instanceof Error ? error.message : 'Could not restore your session.');
+      setLoadingSession(false);
     });
     const { data } = supabase.auth.onAuthStateChange((_event, nextSession) => {
       setSession(nextSession);
       onSession(nextSession);
+      setLoadingSession(false);
     });
-    return () => data.subscription.unsubscribe();
+    return () => { active = false; data.subscription.unsubscribe(); };
   }, [onSession]);
 
   if (!isSupabaseConfigured || !supabase) {
@@ -34,6 +44,7 @@ export function AuthGate({ onSession }: { onSession: (session: Session | null) =
   }
 
   if (session) return null;
+  if (loadingSession) return <div className="auth-screen"><div className="auth-card" role="status" aria-live="polite">Loading your workspace…</div></div>;
 
   async function submit(event: FormEvent) {
     event.preventDefault();

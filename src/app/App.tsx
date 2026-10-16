@@ -35,19 +35,24 @@ export default function App() {
   const refresh=useCallback(async()=>{
     if(!supabase||!userId)return;
     setBusy(true);
-    const [t,e,tr,te,l]=await Promise.all([
-      supabase.from('tasks').select('*').order('created_at',{ascending:true}),
-      supabase.from('task_entries').select('*').order('entry_date',{ascending:false}),
-      supabase.from('custom_trackers').select('*').order('created_at',{ascending:true}),
-      supabase.from('tracker_entries').select('*').order('entry_date',{ascending:false}),
-      supabase.from('daily_logs').select('*').order('entry_date',{ascending:false})
-    ]);
-    const error=[t,e,tr,te,l].find(r=>r.error)?.error;
-    if(error)setNotice(error.message);
-    setTasks((t.data??[]) as Task[]);setEntries((e.data??[]) as TaskEntry[]);setTrackers((tr.data??[]) as Tracker[]);setTrackerEntries((te.data??[]) as TrackerEntry[]);setLogs((l.data??[]) as DailyLog[]);
-    const todays=(l.data??[]).find((r:DailyLog)=>r.entry_date===date);
-    setLog(todays?{...emptyLog(date,userId),...todays}:emptyLog(date,userId));
-    setBusy(false);
+    try{
+      const [t,e,tr,te,l]=await Promise.all([
+        supabase.from('tasks').select('*').order('created_at',{ascending:true}),
+        supabase.from('task_entries').select('*').order('entry_date',{ascending:false}),
+        supabase.from('custom_trackers').select('*').order('created_at',{ascending:true}),
+        supabase.from('tracker_entries').select('*').order('entry_date',{ascending:false}),
+        supabase.from('daily_logs').select('*').order('entry_date',{ascending:false})
+      ]);
+      const error=[t,e,tr,te,l].find(r=>r.error)?.error;
+      if(error){setNotice(error.message);return;}
+      setTasks((t.data??[]) as Task[]);setEntries((e.data??[]) as TaskEntry[]);setTrackers((tr.data??[]) as Tracker[]);setTrackerEntries((te.data??[]) as TrackerEntry[]);setLogs((l.data??[]) as DailyLog[]);
+      const todays=(l.data??[]).find((r:DailyLog)=>r.entry_date===date);
+      setLog(todays?{...emptyLog(date,userId),...todays}:emptyLog(date,userId));
+    }catch(error){
+      setNotice(error instanceof Error?error.message:'Could not load your daily progress.');
+    }finally{
+      setBusy(false);
+    }
   },[userId,date]);
 
   useEffect(()=>{ if(userId) void refresh(); else {setTasks([]);setEntries([]);setTrackers([]);setTrackerEntries([]);setLogs([]);setLog(emptyLog(date));} },[userId,refresh,date]);
@@ -72,7 +77,8 @@ export default function App() {
     await run(()=>supabase!.from('task_entries').upsert({user_id:userId,task_id:task.id,entry_date:date,status,completed_at:status==='done'?new Date().toISOString():null},{onConflict:'user_id,task_id,entry_date'}).select().single());
   };
   const updateLog=async(patch:Partial<DailyLog>)=>{
-    const next={...log,...patch,entry_date:date,user_id:userId};
+    const currentLog=log.entry_date===date?log:emptyLog(date,userId);
+    const next={...currentLog,...patch,entry_date:date,user_id:userId};
     setLog(next);
     if(!supabase||!userId)return;
     await run(()=>supabase!.from('daily_logs').upsert(next,{onConflict:'user_id,entry_date'}).select().single());
@@ -114,12 +120,13 @@ export default function App() {
   const visibleEntries=useMemo(()=>entries,[entries]);
   const nav=[{id:'dashboard' as Page,label:'Daily tracker',icon:LayoutDashboard},{id:'reports' as Page,label:'Analytics',icon:BarChart3},{id:'history' as Page,label:'History',icon:CalendarDays}];
   const doneToday=tasks.filter(t=>t.active&&t.schedule_days.includes(parseISO(`${date}T12:00:00`).getDay())&&entries.some(e=>e.task_id===t.id&&e.entry_date===date&&e.status==='done')).length;
+  const displayedLog=log.entry_date===date?log:emptyLog(date,userId);
 
   return <><AuthGate onSession={handleSession}/>{session&&<div className="app-shell">
     <aside className={`sidebar ${mobileNav?'nav-open':''}`}><div className="brand-row"><div className="brand-mark">d</div><span>daymark</span><button className="mobile-close" onClick={()=>setMobileNav(false)}><X size={18}/></button></div><div className="workspace-label">PERSONAL WORKSPACE</div><div className="user-chip"><div className="avatar">{session.user.email?.[0]?.toUpperCase()??'U'}</div><div><strong>{session.user.email?.split('@')[0]??'Your space'}</strong><span>Personal dashboard</span></div><span className="online-dot"/></div><nav>{nav.map(item=><button key={item.id} className={`nav-item ${page===item.id?'selected':''}`} onClick={()=>{setPage(item.id);setMobileNav(false);}}><item.icon size={18}/><span>{item.label}</span>{page===item.id&&<span className="nav-indicator"/>}</button>)}</nav><div className="sidebar-bottom"><div className="sidebar-tip"><div className="tip-icon"><Sparkles size={17}/></div><strong>Progress, not perfection</strong><p>Build a rhythm that works for you.</p></div><div className="sync-status"><Cloud size={15}/><span>Cloud synced with Supabase</span><span className="online-dot"/></div><button className="nav-item logout-button" onClick={signOut}><LogOut size={18}/><span>Sign out</span></button></div></aside>
     {mobileNav&&<button className="nav-scrim" onClick={()=>setMobileNav(false)} aria-label="Close navigation"/>}
     <main className="main-area"><header className="topbar"><button className="mobile-menu" onClick={()=>setMobileNav(true)} aria-label="Open navigation"><Menu size={20}/></button><div className="breadcrumbs"><span>Workspace</span><ChevronRight size={14}/><strong>{nav.find(n=>n.id===page)?.label}</strong></div><div className="topbar-actions"><div className="sync-pill"><span className="online-dot"/> All changes synced</div><button className="icon-button" title="Export JSON backup" onClick={exportBackup}><Download size={17}/></button><label className="icon-button upload-button" title="Restore JSON backup"><Upload size={17}/><input type="file" accept="application/json,.json" onChange={e=>{const file=e.target.files?.[0];if(file)void importBackup(file);e.currentTarget.value='';}}/></label><button className="avatar top-avatar" title="Sign out" onClick={signOut}>{session.user.email?.[0]?.toUpperCase()??'U'}</button></div></header>
-      <div className="content-wrap">{page==='dashboard'?<><div className="date-navigation"><button className="date-nav-btn" onClick={()=>setDate(d=>dateKey(addDays(parseISO(`${d}T12:00:00`),-1)))}><ChevronLeft size={16}/></button><button className="date-current" onClick={()=>setDate(todayKey())}>{date===todayKey()?'Today':format(parseISO(`${date}T12:00:00`),'MMM d, yyyy')}<RotateCcw size={13}/></button><button className="date-nav-btn" onClick={()=>setDate(d=>dateKey(addDays(parseISO(`${d}T12:00:00`),1)))}><ChevronRight size={16}/></button><span className="date-nav-divider"/><span className="muted small">{doneToday} completed</span></div><Dashboard date={date} tasks={tasks} entries={visibleEntries} log={log} trackers={trackers} trackerEntries={trackerEntries} onAddTask={addTask} onDeleteTask={deleteTask} onStatus={setStatus} onLog={updateLog} onAddTracker={addTracker} onDeleteTracker={deleteTracker} onTrackerValue={setTrackerValue} note={log.notes} onNote={updateNote} busy={busy}/></>:page==='reports'?<Reports tasks={tasks} entries={entries} logs={logs} period={period} onPeriod={setPeriod}/>:<History tasks={tasks} entries={entries} logs={logs}/>}
+      <div className="content-wrap">{page==='dashboard'?<><div className="date-navigation"><button className="date-nav-btn" onClick={()=>setDate(d=>dateKey(addDays(parseISO(`${d}T12:00:00`),-1)))}><ChevronLeft size={16}/></button><button className="date-current" onClick={()=>setDate(todayKey())}>{date===todayKey()?'Today':format(parseISO(`${date}T12:00:00`),'MMM d, yyyy')}<RotateCcw size={13}/></button><button className="date-nav-btn" onClick={()=>setDate(d=>dateKey(addDays(parseISO(`${d}T12:00:00`),1)))}><ChevronRight size={16}/></button><span className="date-nav-divider"/><span className="muted small" role="status" aria-live="polite">{busy?'Loading daily progress…':`${doneToday} completed`}</span></div><Dashboard date={date} tasks={tasks} entries={visibleEntries} log={displayedLog} trackers={trackers} trackerEntries={trackerEntries} onAddTask={addTask} onDeleteTask={deleteTask} onStatus={setStatus} onLog={updateLog} onAddTracker={addTracker} onDeleteTracker={deleteTracker} onTrackerValue={setTrackerValue} note={displayedLog.notes} onNote={updateNote} busy={busy}/></>:page==='reports'?<Reports tasks={tasks} entries={entries} logs={logs} period={period} onPeriod={setPeriod}/>:<History tasks={tasks} entries={entries} logs={logs}/>}
       <footer className="app-footer"><span>© {new Date().getFullYear()} Daymark</span><span><span className="online-dot"/> Your progress is private</span></footer></div>
     </main>
     {notice&&<div className={`toast ${notice.toLowerCase().includes('error')?'toast-error':''}`} role="status"><Check size={16}/><span>{notice}</span><button onClick={()=>setNotice('')}><X size={14}/></button></div>}

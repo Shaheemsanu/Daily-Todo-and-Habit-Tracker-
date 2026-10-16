@@ -2,7 +2,6 @@ import { useMemo, useState } from 'react';
 import { Check, Circle, Clock3, Droplets, Moon, Plus, SkipForward, Trash2, X } from 'lucide-react';
 import { format, parseISO } from 'date-fns';
 import type { DailyLog, Task, TaskEntry, Tracker, TrackerEntry } from './types';
-import { prettyDate } from '../../lib/dates';
 
 type Props = {
   date: string; tasks: Task[]; entries: TaskEntry[]; log: DailyLog;
@@ -32,10 +31,10 @@ export function Dashboard(props: Props) {
   const [taskDays, setTaskDays] = useState<number[]>([0,1,2,3,4,5,6]);
 
   const todaysTasks = useMemo(() => tasks.filter(t => t.active && t.schedule_days.includes(parseISO(date).getDay())), [tasks,date]);
-  const statusByTask = (id: string) => entries.find(e => e.task_id === id)?.status ?? 'pending';
+  const statusByTask = (id: string) => entries.find(e => e.task_id === id && e.entry_date === date)?.status ?? 'pending';
   const doneCount = todaysTasks.filter(t => statusByTask(t.id) === 'done').length;
   const percent = todaysTasks.length ? Math.round(doneCount / todaysTasks.length * 100) : 0;
-  const trackerValue = (id: string) => trackerEntries.find(e => e.tracker_id === id);
+  const trackerValue = (id: string) => trackerEntries.find(e => e.tracker_id === id && e.entry_date === date);
 
   async function addTask() {
     const title = newTask.trim(); if (!title) return;
@@ -48,7 +47,7 @@ export function Dashboard(props: Props) {
     setNewTracker(''); setTrackerUnit(''); setTrackerTarget(''); setShowTrackerForm(false);
   }
 
-  return <div className="page-stack">
+  return <div className="page-stack" aria-busy={props.busy}>
     <div className="welcome-row">
       <div><p className="eyebrow">{format(parseISO(date), 'EEEE, MMMM d, yyyy').toUpperCase()}</p><h1>Make today count<span className="period">.</span></h1><p className="muted">Small steps, repeated with care.</p></div>
       <div className="date-chip"><span className="date-chip-day">{format(parseISO(date), 'dd')}</span><span>{format(parseISO(date), 'MMM yyyy')}</span></div>
