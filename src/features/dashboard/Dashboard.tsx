@@ -13,7 +13,7 @@ type Props = {
   onAddTracker: (name: string, kind: 'number'|'boolean', unit: string, target: number|null) => Promise<void>;
   onDeleteTracker: (id: string) => Promise<void>;
   onTrackerValue: (tracker: Tracker, value: number|boolean) => Promise<void>;
-  note: string; onNote: (value: string) => Promise<void>;
+  note: string; onNote: (value: string) => Promise<boolean>;
   busy: boolean;
 };
 
@@ -29,12 +29,38 @@ export function Dashboard(props: Props) {
   const [showTaskForm, setShowTaskForm] = useState(false);
   const [showTrackerForm, setShowTrackerForm] = useState(false);
   const [taskDays, setTaskDays] = useState<number[]>([0,1,2,3,4,5,6]);
+  const [savingItem, setSavingItem] = useState<string | null>(null);
+  const [savingNote, setSavingNote] = useState(false);
+  const [noteDraft, setNoteDraft] = useState({ date, value: props.note, saved: props.note });
 
   const todaysTasks = useMemo(() => tasks.filter(t => t.active && t.schedule_days.includes(parseISO(date).getDay())), [tasks,date]);
   const statusByTask = (id: string) => entries.find(e => e.task_id === id && e.entry_date === date)?.status ?? 'pending';
   const doneCount = todaysTasks.filter(t => statusByTask(t.id) === 'done').length;
   const percent = todaysTasks.length ? Math.round(doneCount / todaysTasks.length * 100) : 0;
   const trackerValue = (id: string) => trackerEntries.find(e => e.tracker_id === id && e.entry_date === date);
+  const activeNote = noteDraft.date === date ? noteDraft : { date, value: props.note, saved: props.note };
+
+  async function saveItem(key: string, action: () => Promise<void>) {
+    if (savingItem) return;
+    setSavingItem(key);
+    try {
+      await action();
+    } finally {
+      setSavingItem(null);
+    }
+  }
+
+  async function saveNote() {
+    if (savingNote || activeNote.value === activeNote.saved) return;
+    setSavingNote(true);
+    try {
+      if (await props.onNote(activeNote.value)) {
+        setNoteDraft({ ...activeNote, saved: activeNote.value });
+      }
+    } finally {
+      setSavingNote(false);
+    }
+  }
 
   async function addTask() {
     const title = newTask.trim(); if (!title) return;
@@ -64,11 +90,11 @@ export function Dashboard(props: Props) {
       <section className="panel task-panel">
         <div className="panel-heading"><div><p className="eyebrow">YOUR ROUTINE</p><h2>Daily tasks <span className="count-pill">{todaysTasks.length}</span></h2></div><button className="icon-button" aria-label="Add task" onClick={()=>setShowTaskForm(!showTaskForm)}><Plus size={19}/></button></div>
         {showTaskForm && <div className="inline-form"><input value={newTask} onChange={e=>setNewTask(e.target.value)} placeholder="e.g. Read for 20 minutes" onKeyDown={e=>e.key==='Enter'&&addTask()} autoFocus/><div className="weekday-picks">{days.map((d,i)=><button key={d} className={taskDays.includes(i)?'weekday active':'weekday'} onClick={()=>setTaskDays(prev=>prev.includes(i)?prev.filter(n=>n!==i):[...prev,i])}>{d}</button>)}</div><div className="form-actions"><button className="text-button" onClick={()=>setShowTaskForm(false)}>Cancel</button><button className="primary-button compact" onClick={addTask}>Add recurring task</button></div><p className="microcopy">Choose the days this task should appear. Its status is stored separately for each date.</p></div>}
-        <div className="task-list">{todaysTasks.length ? todaysTasks.map(task=>{const status=statusByTask(task.id);return <div className={`task-row ${status==='done'?'is-done':''}`} key={task.id}>
-          <button className={`task-check ${status==='done'?'checked':status==='skipped'?'skipped':''}`} aria-label={`Mark ${task.title} ${status==='done'?'pending':'done'}`} onClick={()=>props.onStatus(task,status==='done'?'pending':'done')}>{status==='done'?<Check size={15}/>:status==='skipped'?<SkipForward size={14}/>:<Circle size={16}/>}</button>
-          <div className="task-copy"><span className="task-title">{task.title}</span><span className="task-subtitle">{status==='done'?'Completed':status==='skipped'?'Skipped':'Recurring task'}</span></div>
-          <button className="status-action" title="Skip for this day" onClick={()=>props.onStatus(task,status==='skipped'?'pending':'skipped')}><SkipForward size={15}/></button>
-          <button className="status-action delete-action" title="Delete recurring task" onClick={()=>props.onDeleteTask(task.id)}><Trash2 size={15}/></button>
+        <div className="task-list">{todaysTasks.length ? todaysTasks.map(task=>{const status=statusByTask(task.id);const saving=savingItem===`task:${task.id}`;return <div className={`task-row ${status==='done'?'is-done':''}`} key={task.id}>
+          <button className={`task-check ${status==='done'?'checked':status==='skipped'?'skipped':''}`} aria-label={`Mark ${task.title} ${status==='done'?'pending':'done'}`} aria-busy={saving} disabled={!!savingItem} onClick={()=>void saveItem(`task:${task.id}`,()=>props.onStatus(task,status==='done'?'pending':'done'))}>{status==='done'?<Check size={15}/>:status==='skipped'?<SkipForward size={14}/>:<Circle size={16}/>}</button>
+          <div className="task-copy"><span className="task-title">{task.title}</span><span className="task-subtitle">{saving?'Saving…':status==='done'?'Completed':status==='skipped'?'Skipped':'Recurring task'}</span></div>
+          <button className="status-action" title="Skip for this day" aria-label={`Skip ${task.title} for this day`} disabled={!!savingItem} onClick={()=>void saveItem(`task:${task.id}`,()=>props.onStatus(task,status==='skipped'?'pending':'skipped'))}><SkipForward size={15}/></button>
+          <button className="status-action delete-action" title="Delete recurring task" disabled={!!savingItem} onClick={()=>props.onDeleteTask(task.id)}><Trash2 size={15}/></button>
         </div>}) : <div className="empty-state"><div className="empty-icon"><Check size={22}/></div><strong>No tasks scheduled</strong><p>Add a recurring task to build a routine.</p><button className="text-button" onClick={()=>setShowTaskForm(true)}>+ Add your first task</button></div>}</div>
         <div className="panel-footer"><span><span className="legend-dot green"/> Done</span><span><span className="legend-dot gray"/> Pending</span><span><span className="legend-dot amber-dot"/> Skipped</span></div>
       </section>
@@ -77,13 +103,13 @@ export function Dashboard(props: Props) {
         <div className="panel-heading"><div><p className="eyebrow">BUILD CONSISTENCY</p><h2>Habit trackers</h2></div><button className="icon-button" aria-label="Add tracker" onClick={()=>setShowTrackerForm(!showTrackerForm)}><Plus size={19}/></button></div>
         {showTrackerForm && <div className="inline-form"><input value={newTracker} onChange={e=>setNewTracker(e.target.value)} placeholder="Tracker name" autoFocus/><div className="two-fields"><select value={trackerKind} onChange={e=>setTrackerKind(e.target.value as 'number'|'boolean')}><option value="boolean">Yes / No</option><option value="number">Number</option></select><input value={trackerUnit} onChange={e=>setTrackerUnit(e.target.value)} placeholder="Unit (e.g. pages)"/></div>{trackerKind==='number'&&<input type="number" min="0" value={trackerTarget} onChange={e=>setTrackerTarget(e.target.value)} placeholder="Daily target (optional)"/>}<div className="form-actions"><button className="text-button" onClick={()=>setShowTrackerForm(false)}>Cancel</button><button className="primary-button compact" onClick={addTracker}>Create tracker</button></div></div>}
         <div className="tracker-list">
-          {trackers.filter(t=>t.active).map(tracker=>{const entry=trackerValue(tracker.id);const value=tracker.kind==='boolean'?Boolean(entry?.boolean_value):Number(entry?.numeric_value??0);return <div className="tracker-row" key={tracker.id}><div className={`tracker-symbol ${tracker.kind==='boolean'?'tracker-check':'tracker-number'}`}>{tracker.kind==='boolean'?<Check size={17}/>:<span>123</span>}</div><div className="tracker-copy"><strong>{tracker.name}</strong><span>{tracker.kind==='boolean'?'Daily check-in':`Target: ${tracker.target??'—'} ${tracker.unit}`}</span></div>{tracker.kind==='boolean'?<button className={`toggle-check ${value?'selected':''}`} aria-label={`Toggle ${tracker.name}`} onClick={()=>props.onTrackerValue(tracker,!value)}>{value?<Check size={15}/>:<X size={14}/>}</button>:<div className="number-stepper"><button onClick={()=>props.onTrackerValue(tracker,Math.max(0,Number(value)-1))}>−</button><strong>{value}</strong><button onClick={()=>props.onTrackerValue(tracker,Number(value)+1)}>+</button></div>}<button className="status-action delete-action" title={`Delete ${tracker.name}`} onClick={()=>props.onDeleteTracker(tracker.id)}><Trash2 size={14}/></button></div>})}
+          {trackers.filter(t=>t.active).map(tracker=>{const entry=trackerValue(tracker.id);const value=tracker.kind==='boolean'?Boolean(entry?.boolean_value):Number(entry?.numeric_value??0);const saving=savingItem===`tracker:${tracker.id}`;return <div className="tracker-row" key={tracker.id}><div className={`tracker-symbol ${tracker.kind==='boolean'?'tracker-check':'tracker-number'}`}>{tracker.kind==='boolean'?<Check size={17}/>:<span>123</span>}</div><div className="tracker-copy"><strong>{tracker.name}</strong><span>{saving?'Saving…':tracker.kind==='boolean'?'Daily check-in':`Target: ${tracker.target??'—'} ${tracker.unit}`}</span></div>{tracker.kind==='boolean'?<button className={`toggle-check ${value?'selected':''}`} aria-label={`Toggle ${tracker.name}`} aria-busy={saving} disabled={!!savingItem} onClick={()=>void saveItem(`tracker:${tracker.id}`,()=>props.onTrackerValue(tracker,!value))}>{value?<Check size={15}/>:<X size={14}/>}</button>:<div className="number-stepper"><button disabled={!!savingItem} onClick={()=>void saveItem(`tracker:${tracker.id}`,()=>props.onTrackerValue(tracker,Math.max(0,Number(value)-1)))}>−</button><strong>{value}</strong><button disabled={!!savingItem} onClick={()=>void saveItem(`tracker:${tracker.id}`,()=>props.onTrackerValue(tracker,Number(value)+1))}>+</button></div>}<button className="status-action delete-action" title={`Delete ${tracker.name}`} disabled={!!savingItem} onClick={()=>props.onDeleteTracker(tracker.id)}><Trash2 size={14}/></button></div>})}
           {!trackers.filter(t=>t.active).length&&!showTrackerForm&&<div className="tracker-empty">Create a custom tracker for any habit.</div>}
         </div>
         <div className="panel-note"><span className="note-star">✦</span><span>Consistency beats intensity. A little progress still counts.</span></div>
       </section>
     </div>
 
-    <section className="panel notes-panel"><div className="panel-heading"><div><p className="eyebrow">REFLECTION</p><h2>Daily notes</h2></div><span className="muted small">Saved to {date}</span></div><textarea value={props.note} onChange={e=>props.onNote(e.target.value)} placeholder="What went well today? What would you like to remember?..." rows={3}/><div className="notes-footer"><span className="muted small">A few words can help you notice your progress.</span><span className="muted small">{props.note.length} characters</span></div></section>
+    <section className="panel notes-panel"><div className="panel-heading"><div><p className="eyebrow">REFLECTION</p><h2>Daily notes</h2></div><span className="muted small">{activeNote.value===activeNote.saved?'Saved': 'Unsaved changes'} · {date}</span></div><textarea value={activeNote.value} onChange={e=>setNoteDraft({...activeNote,value:e.target.value})} placeholder="What went well today? What would you like to remember?..." rows={3}/><div className="notes-footer"><span className="muted small">A few words can help you notice your progress.</span><div className="form-actions"><span className="muted small">{activeNote.value.length} characters</span><button className="primary-button compact" disabled={savingNote||activeNote.value===activeNote.saved} onClick={()=>void saveNote()}>{savingNote?'Saving…':'Save notes'}</button></div></div></section>
   </div>;
 }

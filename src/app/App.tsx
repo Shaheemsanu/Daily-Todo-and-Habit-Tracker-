@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { Session } from '@supabase/supabase-js';
 import { BarChart3, CalendarDays, Check, ChevronLeft, ChevronRight, Cloud, Download, LayoutDashboard, LogOut, Menu, RotateCcw, Sparkles, Upload, X } from 'lucide-react';
 import { addDays, format, parseISO } from 'date-fns';
@@ -28,12 +28,14 @@ export default function App() {
   const [busy,setBusy]=useState(false);
   const [notice,setNotice]=useState('');
   const [mobileNav,setMobileNav]=useState(false);
+  const refreshRequest=useRef(0);
 
   const userId=session?.user.id;
   const handleSession=useCallback((next:Session|null)=>setSession(next),[]);
 
   const refresh=useCallback(async()=>{
     if(!supabase||!userId)return;
+    const request=++refreshRequest.current;
     setBusy(true);
     try{
       const [t,e,tr,te,l]=await Promise.all([
@@ -43,15 +45,16 @@ export default function App() {
         supabase.from('tracker_entries').select('*').order('entry_date',{ascending:false}),
         supabase.from('daily_logs').select('*').order('entry_date',{ascending:false})
       ]);
+      if(request!==refreshRequest.current)return;
       const error=[t,e,tr,te,l].find(r=>r.error)?.error;
       if(error){setNotice(error.message);return;}
       setTasks((t.data??[]) as Task[]);setEntries((e.data??[]) as TaskEntry[]);setTrackers((tr.data??[]) as Tracker[]);setTrackerEntries((te.data??[]) as TrackerEntry[]);setLogs((l.data??[]) as DailyLog[]);
       const todays=(l.data??[]).find((r:DailyLog)=>r.entry_date===date);
       setLog(todays?{...emptyLog(date,userId),...todays}:emptyLog(date,userId));
     }catch(error){
-      setNotice(error instanceof Error?error.message:'Could not load your daily progress.');
+      if(request===refreshRequest.current)setNotice(error instanceof Error?error.message:'Could not load your daily progress.');
     }finally{
-      setBusy(false);
+      if(request===refreshRequest.current)setBusy(false);
     }
   },[userId,date]);
 
@@ -59,12 +62,17 @@ export default function App() {
   useEffect(()=>{ if(!notice)return;const timer=window.setTimeout(()=>setNotice(''),4500);return()=>window.clearTimeout(timer); },[notice]);
 
   const run=useCallback(async<T,>(action:()=>PromiseLike<{error:{message:string}|null;data?:T}>,success?:string)=>{
-    if(!supabase)return;
-    const result=await action();
-    if(result.error){setNotice(result.error.message);return false;}
-    if(success)setNotice(success);
-    await refresh();
-    return true;
+    if(!supabase)return false;
+    try{
+      const result=await action();
+      if(result.error){setNotice(result.error.message);return false;}
+      if(success)setNotice(success);
+      await refresh();
+      return true;
+    }catch(error){
+      setNotice(error instanceof Error?error.message:'Could not save your changes.');
+      return false;
+    }
   },[refresh]);
 
   const addTask=async(title:string,schedule_days:number[])=>{
@@ -76,13 +84,14 @@ export default function App() {
     if(!supabase||!userId)return;
     await run(()=>supabase!.from('task_entries').upsert({user_id:userId,task_id:task.id,entry_date:date,status,completed_at:status==='done'?new Date().toISOString():null},{onConflict:'user_id,task_id,entry_date'}).select().single());
   };
-  const updateLog=async(patch:Partial<DailyLog>)=>{
+  const persistLog=async(patch:Partial<DailyLog>):Promise<boolean>=>{
     const currentLog=log.entry_date===date?log:emptyLog(date,userId);
     const next={...currentLog,...patch,entry_date:date,user_id:userId};
     setLog(next);
-    if(!supabase||!userId)return;
-    await run(()=>supabase!.from('daily_logs').upsert(next,{onConflict:'user_id,entry_date'}).select().single());
+    if(!supabase||!userId)return false;
+    return await run(()=>supabase!.from('daily_logs').upsert(next,{onConflict:'user_id,entry_date'}).select().single());
   };
+  const updateLog=async(patch:Partial<DailyLog>)=>{await persistLog(patch);};
   const addTracker=async(name:string,kind:'number'|'boolean',unit:string,target:number|null)=>{
     if(!supabase||!userId)return;
     await run(()=>supabase!.from('custom_trackers').insert({user_id:userId,name,kind,unit,target,active:true}).select().single(),'Tracker created');
@@ -93,7 +102,7 @@ export default function App() {
     const payload={user_id:userId,tracker_id:tracker.id,entry_date:date,numeric_value:tracker.kind==='number'?Number(value):null,boolean_value:tracker.kind==='boolean'?Boolean(value):null};
     await run(()=>supabase!.from('tracker_entries').upsert(payload,{onConflict:'user_id,tracker_id,entry_date'}).select().single());
   };
-  const updateNote=async(value:string)=>updateLog({notes:value});
+  const updateNote=(value:string)=>persistLog({notes:value});
 
   async function signOut(){if(supabase)await supabase.auth.signOut();setSession(null);}
   async function exportBackup(){
