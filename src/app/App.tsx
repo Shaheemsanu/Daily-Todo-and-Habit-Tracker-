@@ -9,7 +9,7 @@ import { Reports } from '../features/reports/Reports';
 import { History } from '../features/history/History';
 import { downloadText } from '../lib/export';
 import { dateKey, todayKey } from '../lib/dates';
-import { isSupabaseConfigured, supabase } from '../lib/supabase';
+import { supabase } from '../lib/supabase';
 
 type Page='dashboard'|'reports'|'history';
 const emptyLog=(date:string,userId?:string):DailyLog=>({entry_date:date,user_id:userId,water_ml:0,sleep_hours:0,notes:''});
@@ -53,7 +53,7 @@ export default function App() {
   useEffect(()=>{ if(userId) void refresh(); else {setTasks([]);setEntries([]);setTrackers([]);setTrackerEntries([]);setLogs([]);setLog(emptyLog(date));} },[userId,refresh,date]);
   useEffect(()=>{ if(!notice)return;const timer=window.setTimeout(()=>setNotice(''),4500);return()=>window.clearTimeout(timer); },[notice]);
 
-  const run=useCallback(async<T,>(action:()=>Promise<{error:{message:string}|null;data?:T}>,success?:string)=>{
+  const run=useCallback(async<T,>(action:()=>PromiseLike<{error:{message:string}|null;data?:T}>,success?:string)=>{
     if(!supabase)return;
     const result=await action();
     if(result.error){setNotice(result.error.message);return false;}
