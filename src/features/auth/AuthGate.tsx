@@ -8,7 +8,6 @@ export function AuthGate({ onSession }: { onSession: (session: Session | null) =
   const [mode, setMode] = useState<'signin' | 'signup'>('signin');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
-  const [confirmPassword, setConfirmPassword] = useState('');
   const [busy, setBusy] = useState(false);
   const [loadingSession, setLoadingSession] = useState(Boolean(supabase));
   const [message, setMessage] = useState('');
@@ -50,17 +49,13 @@ export function AuthGate({ onSession }: { onSession: (session: Session | null) =
   async function submit(event: FormEvent) {
     event.preventDefault();
     if (!supabase) return;
-    if (mode === 'signup' && password !== confirmPassword) {
-      setMessage('Passwords do not match.');
-      return;
-    }
     setBusy(true); setMessage('');
     const result = mode === 'signin'
       ? await supabase.auth.signInWithPassword({ email, password })
       : await supabase.auth.signUp({ email, password });
     setBusy(false);
     if (result.error) setMessage(result.error.message);
-    else if (mode === 'signup' && !result.data.session) setMessage('Account created, but email confirmation is enabled. Disable Confirm email in your Supabase Authentication settings to sign in without verification.');
+    else if (mode === 'signup' && !result.data.session) setMessage('Check your email to confirm your account, then sign in.');
     else setMessage('Welcome to Daymark.');
   }
 
@@ -72,7 +67,6 @@ export function AuthGate({ onSession }: { onSession: (session: Session | null) =
     <form onSubmit={submit} className="auth-form">
       <label>Email address<input type="email" value={email} onChange={e => setEmail(e.target.value)} required placeholder="you@example.com" autoComplete="email"/></label>
       <label>Password<input type="password" value={password} onChange={e => setPassword(e.target.value)} required minLength={6} placeholder="At least 6 characters" autoComplete={mode === 'signin' ? 'current-password' : 'new-password'}/></label>
-      {mode === 'signup' && <label>Confirm password<input type="password" value={confirmPassword} onChange={e => setConfirmPassword(e.target.value)} required minLength={6} placeholder="Re-enter your password" autoComplete="new-password"/></label>}
       <button className="primary-button wide" disabled={busy}>{busy ? 'Please wait…' : mode === 'signin' ? 'Sign in' : 'Create account'} <ArrowRight size={17}/></button>
     </form>
     {message && <p className="inline-message">{message}</p>}
