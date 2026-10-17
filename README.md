@@ -41,7 +41,7 @@ The anon key is designed for browser use when RLS is correctly configured. **Nev
 
 Open Supabase → SQL Editor, paste the complete contents of [`supabase/schema.sql`](./supabase/schema.sql), and run it. It creates task templates, daily task entries, custom trackers, tracker entries and daily notes, with RLS enabled.
 
-In Supabase → Authentication → URL Configuration, add your local URL (`http://localhost:5173`) to the allowed redirect URLs. For production, add your GitHub Pages URL too. For a public app, review your email confirmation settings before testing sign-up.
+In Supabase → Authentication → URL Configuration, add your local URL (`http://localhost:5173`) to the allowed redirect URLs. For production, add your GitHub Pages URL too. To allow users to sign in immediately after signing up without email verification, turn off **Confirm email** in Supabase → Authentication → Sign In / Providers → Email. This is a Supabase project setting; the app cannot change it.
 
 ## 4. Run locally
 
