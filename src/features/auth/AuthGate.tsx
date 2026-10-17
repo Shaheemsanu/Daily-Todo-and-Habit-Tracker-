@@ -12,24 +12,19 @@ export function AuthGate({ onSession }: { onSession: (session: Session | null) =
   const [busy, setBusy] = useState(false);
   const [loadingSession, setLoadingSession] = useState(Boolean(supabase));
   const [message, setMessage] = useState('');
-  const [messageTone, setMessageTone] = useState<'error' | 'info' | 'success'>('info');
 
   useEffect(() => {
     if (!supabase) return;
     let active = true;
     supabase.auth.getSession().then(({ data, error }) => {
       if (!active) return;
-      if (error) {
-        setMessage(error.message);
-        setMessageTone('error');
-      }
+      if (error) setMessage(error.message);
       setSession(data.session);
       onSession(data.session);
       setLoadingSession(false);
     }).catch(error => {
       if (!active) return;
       setMessage(error instanceof Error ? error.message : 'Could not restore your session.');
-      setMessageTone('error');
       setLoadingSession(false);
     });
     const { data } = supabase.auth.onAuthStateChange((_event, nextSession) => {
@@ -57,24 +52,16 @@ export function AuthGate({ onSession }: { onSession: (session: Session | null) =
     if (!supabase) return;
     if (mode === 'signup' && password !== confirmPassword) {
       setMessage('Passwords do not match.');
-      setMessageTone('error');
       return;
     }
-    setBusy(true); setMessage(''); setMessageTone('info');
+    setBusy(true); setMessage('');
     const result = mode === 'signin'
       ? await supabase.auth.signInWithPassword({ email, password })
       : await supabase.auth.signUp({ email, password });
     setBusy(false);
-    if (result.error) {
-      setMessage(result.error.message);
-      setMessageTone('error');
-    } else if (mode === 'signup' && !result.data.session) {
-      setMessage('Account created, but email confirmation is enabled. Disable Confirm email in your Supabase Authentication settings to sign in without verification.');
-      setMessageTone('info');
-    } else {
-      setMessage('Welcome to Daymark.');
-      setMessageTone('success');
-    }
+    if (result.error) setMessage(result.error.message);
+    else if (mode === 'signup' && !result.data.session) setMessage('Account created, but email confirmation is enabled. Disable Confirm email in your Supabase Authentication settings to sign in without verification.');
+    else setMessage('Welcome to Daymark.');
   }
 
   return <div className="auth-screen"><div className="auth-card">
@@ -88,8 +75,8 @@ export function AuthGate({ onSession }: { onSession: (session: Session | null) =
       {mode === 'signup' && <label>Confirm password<input type="password" value={confirmPassword} onChange={e => setConfirmPassword(e.target.value)} required minLength={6} placeholder="Re-enter your password" autoComplete="new-password"/></label>}
       <button className="primary-button wide" disabled={busy}>{busy ? 'Please wait…' : mode === 'signin' ? 'Sign in' : 'Create account'} <ArrowRight size={17}/></button>
     </form>
-    {message && <p className={`inline-message ${messageTone}`} role={messageTone === 'error' ? 'alert' : 'status'}>{message}</p>}
-    <button className="text-button" onClick={() => {setMode(mode === 'signin' ? 'signup' : 'signin'); setMessage(''); setMessageTone('info');}}>
+    {message && <p className="inline-message">{message}</p>}
+    <button className="text-button" onClick={() => {setMode(mode === 'signin' ? 'signup' : 'signin'); setMessage('');}}>
       {mode === 'signin' ? 'New here? Create an account' : 'Already have an account? Sign in'}
     </button>
     <div className="auth-trust"><span><Cloud size={15}/> Cloud sync</span><span><ShieldCheck size={15}/> Private by design</span></div>
